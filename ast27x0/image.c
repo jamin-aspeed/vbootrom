@@ -21,6 +21,7 @@
 #include <libfdt.h>
 #include <uart.h>
 #include <uart_console.h>
+#include <fmc_image.h>
 
 #define DEBUG 0
 #define DRAM_ADDR 0x400000000ULL
@@ -30,6 +31,8 @@
 #define FIT_SEARCH_START (FMCCS0)
 #define FIT_SEARCH_END   (FMCCS0 + 0x400000)
 #define FIT_SEARCH_STEP  0x10000
+
+#define ALIGN_UP(x, align)  (((x) + ((align) - 1)) & ~((align) - 1))
 
 extern void panic(const char *);
 
@@ -366,8 +369,46 @@ static const void *find_fit_image(uint64_t start_addr, uint64_t end_addr,
     return NULL;
 }
 
+static uint64_t find_fmc_image_end(uint64_t start_addr, uint64_t end_addr,
+                                   uint64_t search_step)
+{
+    struct ast_fmc_header *hdr;
+    uint64_t fit_search_base;
+    uint32_t fmc_header_size;
+    uint32_t payload_size;
+    uint32_t total_size;
+    uint64_t addr;
+
+    fmc_header_size = sizeof(struct ast_fmc_header);
+
+    for (addr = start_addr;
+         addr + fmc_header_size <= end_addr;
+         addr += search_step) {
+        hdr = (struct ast_fmc_header *)addr;
+
+        if (hdr->preamble.magic == FMC_HDR_MAGIC) {
+            payload_size = hdr->body.size;
+            total_size = fmc_header_size + payload_size;
+
+            if (payload_size > 0 && (addr + total_size) <= end_addr) {
+                fit_search_base = ALIGN_UP(addr + total_size, search_step);
+                uprintf("Found valid FMC v%d image at 0x%lx (size: 0x%x)",
+                        hdr->preamble.version, addr, total_size);
+                uprintf(", next FIT search @ 0x%lx\n", fit_search_base);
+                return fit_search_base;
+            }
+        }
+    }
+
+    uprintf("No valid FMC image found in range 0x%lx - 0x%lx (step: 0x%lx)\n",
+            start_addr, end_addr, search_step);
+
+    return start_addr;
+}
+
 uint64_t load_boot_image(void)
 {
+    uint64_t fmc_end = FIT_SEARCH_START;
     uint64_t bl31_addr = 0;
     const void *fit_blob;
     uint64_t uboot_end;
@@ -376,7 +417,12 @@ uint64_t load_boot_image(void)
     uart_console_register(&ucons);
 
     print_build_info();
-    fit_blob = find_fit_image(FIT_SEARCH_START,
+
+    fmc_end = find_fmc_image_end(FIT_SEARCH_START,
+                                 FIT_SEARCH_END,
+                                 FIT_SEARCH_STEP);
+
+    fit_blob = find_fit_image(fmc_end,
                               FIT_SEARCH_END,
                               FIT_SEARCH_STEP);
     if (!fit_blob) {
@@ -403,3 +449,4 @@ uint64_t load_boot_image(void)
             bl31_addr);
     return bl31_addr;
 }
+
