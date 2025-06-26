@@ -21,6 +21,7 @@
 #include <libfdt.h>
 #include <uart.h>
 #include <uart_console.h>
+#include <ssp_tsp.h>
 
 #define DEBUG 0
 #define DRAM_ADDR 0x400000000ULL
@@ -32,6 +33,9 @@
 #define FIT_SEARCH_STEP  0x10000
 
 extern void panic(const char *);
+
+static bool has_sspfw;
+static bool has_tspfw;
 
 /*
  * This global struct is explicitly initialized, so it is placed in the .data
@@ -316,6 +320,17 @@ static void load_other_fit_images(const void *fit_blob, uint64_t uboot_end,
             if (strcmp(name, "atf") == 0) {
                 *dest_addr = dram_addr;
             }
+
+            /* Init co-processor */
+            if (strcmp(name, "sspfw") == 0) {
+                ssp_init(dram_addr);
+                has_sspfw = true;
+            }
+
+            if (strcmp(name, "tspfw") == 0) {
+                tsp_init(dram_addr);
+                has_tspfw = true;
+            }
         } else if (strcmp(name, "fdt") == 0 && uboot_end) {
             /* fdt has no load address, fallback to uboot_end */
             load_addr = uboot_end;
@@ -399,7 +414,19 @@ uint64_t load_boot_image(void)
         uprintf("Error: BL31 (Trusted Firmware-A) not found, halting.\n");
         panic("");
     }
+
+    if (has_sspfw) {
+        uprintf("Enable SSP\n");
+        ssp_enable();
+    }
+
+    if (has_tspfw) {
+        uprintf("Enable TSP\n");
+        tsp_enable();
+    }
+
     uprintf("\nJumping to BL31 (Trusted Firmware-A) at 0x%lx\n\n",
             bl31_addr);
+
     return bl31_addr;
 }

@@ -27,4 +27,10 @@
 #define writel(value, addr) (*(volatile unsigned int *)(addr) = (unsigned int)(value))
 #define writeq(value, addr) (*(volatile unsigned long long *)(addr) = (unsigned long long)(value))
 
+#define BITS_PER_LONG (sizeof(unsigned long) * 8)
+#define GENMASK(h, l) \
+    (((~0UL) >> (BITS_PER_LONG - ((h) - (l) + 1))) << (l))
+
+#define BIT(x) (1UL << (x))
+
 #endif /* __AST27X0_INCLUDE_IO_H__ */
