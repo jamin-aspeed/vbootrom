@@ -74,6 +74,23 @@ static void print_build_info()
    uprintf("\n");
 }
 
+#define SSP_MEMORY_NODE     "/reserved-memory/ssp-memory"
+#define TSP_MEMORY_NODE     "/reserved-memory/tsp-memory"
+#define ATF_MEMORY_NODE     "/reserved-memory/trusted-firmware-a"
+#define OPTEE_MEMORY_NODE   "/reserved-memory/optee-core"
+#define IPC_SSP_MEMORY_NODE "/reserved-memory/ipc-ssp-share"
+
+struct fmc_img_info {
+    uint64_t payload_start;
+    uint64_t payload_end;
+    uint32_t ssp_mem_size;
+    uint32_t tsp_mem_size;
+    uint32_t atf_mem_size;
+    uint32_t tee_mem_size;
+    uint32_t ipc_ssp_mem_size;
+    uint32_t ssp_mem_total_size;
+};
+
 /*
  * Remap 32-bit BootMCU load address to 64-bit Cortex-A35 DRAM address.
  * BootMCU loads the U-BOOT FIT image to a 32-bit address (e.g. 0x80000000),
@@ -369,15 +386,18 @@ static const void *find_fit_image(uint64_t start_addr, uint64_t end_addr,
     return NULL;
 }
 
-static uint64_t find_fmc_image_end(uint64_t start_addr, uint64_t end_addr,
-                                   uint64_t search_step)
+static int find_fmc_image(uint64_t start_addr, uint64_t end_addr,
+                                uint64_t search_step, struct fmc_img_info *info)
 {
     struct ast_fmc_header *hdr;
-    uint64_t fit_search_base;
     uint32_t fmc_header_size;
     uint32_t payload_size;
     uint32_t total_size;
     uint64_t addr;
+
+    if (info == NULL) {
+        return 0;
+    }
 
     fmc_header_size = sizeof(struct ast_fmc_header);
 
@@ -391,11 +411,12 @@ static uint64_t find_fmc_image_end(uint64_t start_addr, uint64_t end_addr,
             total_size = fmc_header_size + payload_size;
 
             if (payload_size > 0 && (addr + total_size) <= end_addr) {
-                fit_search_base = ALIGN_UP(addr + total_size, search_step);
+                info->payload_start = addr + fmc_header_size;
+                info->payload_end = ALIGN_UP(addr + total_size, search_step);
                 uprintf("Found valid FMC v%d image at 0x%lx (size: 0x%x)",
                         hdr->preamble.version, addr, total_size);
-                uprintf(", next FIT search @ 0x%lx\n", fit_search_base);
-                return fit_search_base;
+                uprintf(", next FIT search @ 0x%lx\n", info->payload_end);
+                return 1;
             }
         }
     }
@@ -403,14 +424,94 @@ static uint64_t find_fmc_image_end(uint64_t start_addr, uint64_t end_addr,
     uprintf("No valid FMC image found in range 0x%lx - 0x%lx (step: 0x%lx)\n",
             start_addr, end_addr, search_step);
 
-    return start_addr;
+    return 0;
+}
+
+static void *load_dtb_after_fmc(uint64_t fmc_end, uint64_t end_addr)
+{
+    void *dram_dtb_addr = (void *)(uintptr_t)DRAM_ADDR;
+    const uint32_t *magic_ptr;
+    size_t copy_size;
+    uint64_t addr;
+
+    for (addr = ALIGN_UP(fmc_end, 4); addr + 4 < end_addr; addr += 4) {
+        /* Check for DTB magic number (aligned on 4-byte boundary) */
+        magic_ptr = (const uint32_t *)(uintptr_t)addr;
+        if (*magic_ptr != cpu_to_fdt32(FDT_MAGIC)) {
+            continue;
+        }
+
+        /* Copy from flash to DRAM for validation */
+        copy_size = end_addr - addr;
+        memcpy(dram_dtb_addr, (const void *)(uintptr_t)addr, copy_size);
+
+        /* Verify if the copied region is a valid DTB */
+        if (fdt_check_header(dram_dtb_addr) == 0) {
+            uprintf("Valid DTB found at 0x%lx, copied to 0x%lx\n",
+                    addr, (uint64_t)dram_dtb_addr);
+            return dram_dtb_addr;
+        } else {
+            uprintf("FDT_MAGIC at 0x%lx but invalid DTB header\n", addr);
+        }
+    }
+
+    uprintf("No valid DTB found between 0x%lx and 0x%lx\n", fmc_end, end_addr);
+    return NULL;
+}
+
+static void get_reserved_memory(const void *fdt_blob, struct fmc_img_info *info)
+{
+    const struct {
+        const char *path;
+        uint32_t *target;
+    } nodes[] = {
+        { SSP_MEMORY_NODE,     &info->ssp_mem_size },
+        { TSP_MEMORY_NODE,     &info->tsp_mem_size },
+        { ATF_MEMORY_NODE,     &info->atf_mem_size },
+        { OPTEE_MEMORY_NODE,   &info->tee_mem_size },
+        { IPC_SSP_MEMORY_NODE, &info->ipc_ssp_mem_size },
+    };
+
+    const fdt32_t *reg;
+    const char *path;
+    size_t size;
+    ulong base;
+    int offset;
+    size_t i;
+
+    for (i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
+        path = nodes[i].path;
+
+        offset = fdt_path_offset(fdt_blob, path);
+        if (offset < 0) {
+            uprintf("Cannot find node %s in the device tree.\n", path);
+            *(nodes[i].target) = 0;
+            continue;
+        }
+
+        reg = fdt_getprop(fdt_blob, offset, "reg", NULL);
+        if (!reg) {
+            uprintf("No reg property found in %s\n", path);
+            *(nodes[i].target) = 0;
+            continue;
+        }
+
+        base = (ulong)fdt32_to_cpu(reg[0]);
+        size = (size_t)fdt32_to_cpu(reg[1]);
+        *(nodes[i].target) = size;
+        info->ssp_mem_total_size += size;
+
+        uprintf("[reserved] %s base: 0x%lx  size: 0x%lx\n", path, base, size);
+    }
 }
 
 uint64_t load_boot_image(void)
 {
-    uint64_t fmc_end = FIT_SEARCH_START;
+    struct fmc_img_info fmcinfo = {0};
+    uint64_t search_next_addr;
     uint64_t bl31_addr = 0;
     const void *fit_blob;
+    void *dtb_ptr = NULL;
     uint64_t uboot_end;
 
     uart_aspeed_init(UART12);
@@ -418,17 +519,31 @@ uint64_t load_boot_image(void)
 
     print_build_info();
 
-    fmc_end = find_fmc_image_end(FIT_SEARCH_START,
-                                 FIT_SEARCH_END,
-                                 FIT_SEARCH_STEP);
+    search_next_addr = FIT_SEARCH_START;
 
-    fit_blob = find_fit_image(fmc_end,
+    /* Find FMC image */
+    if (find_fmc_image(search_next_addr, FIT_SEARCH_END, FIT_SEARCH_STEP,
+                       &fmcinfo)) {
+        search_next_addr =  fmcinfo.payload_end;
+
+        /* Try to find and load a valid SPL DTB between FMC and U-Boot FIT */
+        dtb_ptr = load_dtb_after_fmc(fmcinfo.payload_start,
+                                     fmcinfo.payload_end);
+        if (dtb_ptr) {
+            get_reserved_memory(dtb_ptr, &fmcinfo);
+        }
+    }
+
+    /* Find U-Boot FIT imag */
+    uprintf("jamin debug search u-boot addr 0x%lx\n", search_next_addr);
+    fit_blob = find_fit_image(search_next_addr,
                               FIT_SEARCH_END,
                               FIT_SEARCH_STEP);
     if (!fit_blob) {
         panic("");
     }
 
+     panic("");
 #if DEBUG
     dump_fit_image(fit_blob);
 #endif
