@@ -21,20 +21,20 @@
 #include <libfdt.h>
 #include <uart.h>
 #include <uart_console.h>
-#include <fmc_image.h>
+#include <io.h>
+#include <image.h>
+#include <ssp_tsp.h>
 
 #define DEBUG 0
-#define DRAM_ADDR 0x400000000ULL
-#define FMCCS0  0x100000000ULL
-#define UART12  0x14C33B00
 
 #define FIT_SEARCH_START (FMCCS0)
 #define FIT_SEARCH_END   (FMCCS0 + 0x400000)
 #define FIT_SEARCH_STEP  0x10000
 
-#define ALIGN_UP(x, align)  (((x) + ((align) - 1)) & ~((align) - 1))
-
 extern void panic(const char *);
+
+static bool has_sspfw;
+static bool has_tspfw;
 
 /*
  * This global struct is explicitly initialized, so it is placed in the .data
@@ -73,23 +73,6 @@ static void print_build_info()
    uprintf("FW Version : %s\n", GIT_VERSION);
    uprintf("\n");
 }
-
-#define SSP_MEMORY_NODE     "/reserved-memory/ssp-memory"
-#define TSP_MEMORY_NODE     "/reserved-memory/tsp-memory"
-#define ATF_MEMORY_NODE     "/reserved-memory/trusted-firmware-a"
-#define OPTEE_MEMORY_NODE   "/reserved-memory/optee-core"
-#define IPC_SSP_MEMORY_NODE "/reserved-memory/ipc-ssp-share"
-
-struct fmc_img_info {
-    uint64_t payload_start;
-    uint64_t payload_end;
-    uint32_t ssp_mem_size;
-    uint32_t tsp_mem_size;
-    uint32_t atf_mem_size;
-    uint32_t tee_mem_size;
-    uint32_t ipc_ssp_mem_size;
-    uint32_t ssp_mem_total_size;
-};
 
 /*
  * Remap 32-bit BootMCU load address to 64-bit Cortex-A35 DRAM address.
@@ -294,7 +277,8 @@ static uint64_t load_uboot_image(const void *fit_blob)
  * if some images do not define explicit load addresses in the FIT.
  */
 static void load_other_fit_images(const void *fit_blob, uint64_t uboot_end,
-                                  uint64_t *dest_addr)
+                                  uint64_t *dest_addr,
+                                  const struct reserved_mem_info *info)
 {
     uintptr_t data_offset;
     uint64_t load_addr;
@@ -335,6 +319,17 @@ static void load_other_fit_images(const void *fit_blob, uint64_t uboot_end,
             /* The next image to jump to is BL31 (Trusted Firmware-A) */
             if (strcmp(name, "atf") == 0) {
                 *dest_addr = dram_addr;
+            }
+
+            /* Init co-processor */
+            if (strcmp(name, "sspfw") == 0) {
+                ssp_init(dram_addr, info);
+                has_sspfw = true;
+            }
+
+            if (strcmp(name, "tspfw") == 0) {
+                tsp_init(dram_addr, info);
+                has_tspfw = true;
             }
         } else if (strcmp(name, "fdt") == 0 && uboot_end) {
             /* fdt has no load address, fallback to uboot_end */
@@ -459,54 +454,9 @@ static void *load_dtb_after_fmc(uint64_t fmc_end, uint64_t end_addr)
     return NULL;
 }
 
-static void get_reserved_memory(const void *fdt_blob, struct fmc_img_info *info)
-{
-    const struct {
-        const char *path;
-        uint32_t *target;
-    } nodes[] = {
-        { SSP_MEMORY_NODE,     &info->ssp_mem_size },
-        { TSP_MEMORY_NODE,     &info->tsp_mem_size },
-        { ATF_MEMORY_NODE,     &info->atf_mem_size },
-        { OPTEE_MEMORY_NODE,   &info->tee_mem_size },
-        { IPC_SSP_MEMORY_NODE, &info->ipc_ssp_mem_size },
-    };
-
-    const fdt32_t *reg;
-    const char *path;
-    size_t size;
-    ulong base;
-    int offset;
-    size_t i;
-
-    for (i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
-        path = nodes[i].path;
-
-        offset = fdt_path_offset(fdt_blob, path);
-        if (offset < 0) {
-            uprintf("Cannot find node %s in the device tree.\n", path);
-            *(nodes[i].target) = 0;
-            continue;
-        }
-
-        reg = fdt_getprop(fdt_blob, offset, "reg", NULL);
-        if (!reg) {
-            uprintf("No reg property found in %s\n", path);
-            *(nodes[i].target) = 0;
-            continue;
-        }
-
-        base = (ulong)fdt32_to_cpu(reg[0]);
-        size = (size_t)fdt32_to_cpu(reg[1]);
-        *(nodes[i].target) = size;
-        info->ssp_mem_total_size += size;
-
-        uprintf("[reserved] %s base: 0x%lx  size: 0x%lx\n", path, base, size);
-    }
-}
-
 uint64_t load_boot_image(void)
 {
+    struct reserved_mem_info reservedinfo = {0};
     struct fmc_img_info fmcinfo = {0};
     uint64_t search_next_addr;
     uint64_t bl31_addr = 0;
@@ -530,12 +480,11 @@ uint64_t load_boot_image(void)
         dtb_ptr = load_dtb_after_fmc(fmcinfo.payload_start,
                                      fmcinfo.payload_end);
         if (dtb_ptr) {
-            get_reserved_memory(dtb_ptr, &fmcinfo);
+            get_reserved_memory(dtb_ptr, &reservedinfo);
         }
     }
 
     /* Find U-Boot FIT imag */
-    uprintf("jamin debug search u-boot addr 0x%lx\n", search_next_addr);
     fit_blob = find_fit_image(search_next_addr,
                               FIT_SEARCH_END,
                               FIT_SEARCH_STEP);
@@ -543,7 +492,6 @@ uint64_t load_boot_image(void)
         panic("");
     }
 
-     panic("");
 #if DEBUG
     dump_fit_image(fit_blob);
 #endif
@@ -554,12 +502,21 @@ uint64_t load_boot_image(void)
         panic("");
     }
 
-    load_other_fit_images(fit_blob, uboot_end, &bl31_addr);
+    load_other_fit_images(fit_blob, uboot_end, &bl31_addr, &reservedinfo);
 
     if (!bl31_addr) {
         uprintf("Error: BL31 (Trusted Firmware-A) not found, halting.\n");
         panic("");
     }
+
+    if (has_sspfw) {
+        ssp_enable();
+    }
+
+    if (has_tspfw) {
+        tsp_enable();
+    }
+
     uprintf("\nJumping to BL31 (Trusted Firmware-A) at 0x%lx\n\n",
             bl31_addr);
     return bl31_addr;

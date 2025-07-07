@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef __AST27X0_INCLUDE_FMC_IMAGE_H__
-#define __AST27X0_INCLUDE_FMC_IMAGE_H__
+#ifndef __AST27X0_INCLUDE_IMAGE_H__
+#define __AST27X0_INCLUDE_IMAGE_H__
 
+#define DRAM_ADDR   0x400000000ULL
+#define FMCCS0      0x100000000ULL
+
+/* FMC v2 */
 /* ASTH */
 #define FMC_HDR_MAGIC 0x48545341
 #define ECC_SIGN_LEN  96
@@ -46,4 +50,9 @@ struct ast_fmc_header {
     struct hdr_body body;
 } __attribute__((packed));
 
-#endif /* __AST27X0_INCLUDE_FMC_IMAGE_H__ */
+struct fmc_img_info {
+    uint64_t payload_start;
+    uint64_t payload_end;
+};
+
+#endif /* __AST27X0_INCLUDE_IMAGE_H__ */
