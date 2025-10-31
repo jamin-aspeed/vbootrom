@@ -88,6 +88,9 @@ static uint32_t search_and_load_uboot(uintptr_t end)
             (*(uint32_t *)(src_addr + 0x200) == UBOOT_MAGIC)) {
             dest_addr = image_read_u32(src_addr, 0x1f8);
             size = image_read_u32(src_addr, 0x1fc);
+            // The size at 0x1fc is only for src + 0x200 onwards. Add 0x200 to
+            // account for the header as well.
+            size += 0x200;
             copy_boot_image(dest_addr, src_addr, size);
             return dest_addr;
         }
