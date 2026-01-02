@@ -14,6 +14,8 @@
 #ifndef __AST27X0_INCLUDE_UART_H__
 #define __AST27X0_INCLUDE_UART_H__
 
+#include <stdint.h>
+
 #define UART12  0x14C33B00
 
 /**

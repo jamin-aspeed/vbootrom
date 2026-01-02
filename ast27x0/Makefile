@@ -47,7 +47,7 @@ LDSCRIPT	= bootrom.ld
 MAPFILE		= bootrom.map
 LDFLAGS		= -Wl,--build-id=none -static -nostdlib -T $(LDSCRIPT) -Wl,-Map=$(MAPFILE)
 
-OBJS		:= start.o image.o uart_aspeed.o uart_console.o ssp_tsp.o \
+OBJS		:= start.o image.o fmc_image.o uart_aspeed.o uart_console.o ssp_tsp.o \
 			../lib/libc/minimal/source/string/string.o \
 			../lib/libfdt/fdt.o ../lib/libfdt/fdt_ro.o
 
