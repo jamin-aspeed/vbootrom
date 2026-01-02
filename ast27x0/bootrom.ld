@@ -19,50 +19,50 @@
 
 MEMORY
 {
-	rom (rx) : ORIGIN = 0x00000000, LENGTH = 128K
-	ram (arwx) : ORIGIN = 0x10000000, LENGTH = 128K
+    rom (rx) : ORIGIN = 0x00000000, LENGTH = 128K
+    ram (arwx) : ORIGIN = 0x10000000, LENGTH = 128K
 }
 
 SECTIONS
 {
-	/* Vectors are loaded into ROM */
-	.text.vectors : {
-		__vectors_vma = .;
-		*(.text.vectors)
-		. = 0x100;
-		__vectors_end = .;
-	} >rom
-	/* The rest of the code follows the vectors.
-	 * The main code and read-only data, located in ROM
-	 */
-	.text : {
-		__text = .;
-		*(.text .text.*)
-		. = ALIGN(32);
-		*(.rodata .rodata.*)
-		. = ALIGN(32);
-		__etext = .;
-	} >rom
-	/*
-	 * Initialized data section
-	 * Data follows the code in ROM, and is copied in RAM.
-	 */
-	.data : {
-		__data = .;
-		*(.data .data.*)
-		. = ALIGN(32);
-		__edata = .;
-	} >ram AT>rom
-	__data_loadaddr = LOADADDR(.data);
+    /* Vectors are loaded into ROM */
+    .text.vectors : {
+        __vectors_vma = .;
+        *(.text.vectors)
+        . = 0x100;
+        __vectors_end = .;
+    } >rom
+    /* The rest of the code follows the vectors.
+     * The main code and read-only data, located in ROM
+     */
+    .text : {
+        __text = .;
+        *(.text .text.*)
+        . = ALIGN(32);
+        *(.rodata .rodata.*)
+        . = ALIGN(32);
+        __etext = .;
+    } >rom
+    /*
+     * Initialized data section
+     * Data follows the code in ROM, and is copied in RAM.
+     */
+    .data : {
+        __data = .;
+        *(.data .data.*)
+        . = ALIGN(32);
+        __edata = .;
+    } >ram AT>rom
+    __data_loadaddr = LOADADDR(.data);
 
-	/* Zero-initialized data (BSS) lives in RAM, after the data section. */
-	.bss : {
-		__bss_start = .;
-		*(.bss .bss.*)
-		. = ALIGN(32);
-		*(COMMON)
-		. = ALIGN(32);
-		__bss_end = .;
-		__end = .;
-	} >ram
+    /* Zero-initialized data (BSS) lives in RAM, after the data section. */
+    .bss : {
+        __bss_start = .;
+        *(.bss .bss.*)
+        . = ALIGN(32);
+        *(COMMON)
+        . = ALIGN(32);
+        __bss_end = .;
+        __end = .;
+    } >ram
 }

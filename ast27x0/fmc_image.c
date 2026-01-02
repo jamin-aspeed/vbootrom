@@ -25,11 +25,12 @@
 #include <image.h>
 #include <fmc_image.h>
 #include <ssp_tsp.h>
+#include <platform_ast2700.h>
 
 #define DEBUG 0
 
-#define FIT_SEARCH_START (FMCCS0)
-#define FIT_SEARCH_END   (FMCCS0 + 0x400000)
+#define FIT_SEARCH_START (ASPEED_FMC_CS0_BASE)
+#define FIT_SEARCH_END   (FIT_SEARCH_START + 0x400000)
 #define FIT_SEARCH_STEP  0x10000
 
 extern void panic(const char *);
@@ -367,38 +368,6 @@ static int find_fmc_image(uint64_t start_addr, uint64_t end_addr,
     return 0;
 }
 
-static void *load_dtb_after_fmc(uint64_t fmc_end, uint64_t end_addr)
-{
-    void *dram_dtb_addr = (void *)(uintptr_t)DRAM_ADDR;
-    const uint32_t *magic_ptr;
-    size_t copy_size;
-    uint64_t addr;
-
-    for (addr = ALIGN_UP(fmc_end, 4); addr + 4 < end_addr; addr += 4) {
-        /* Check for DTB magic number (aligned on 4-byte boundary) */
-        magic_ptr = (const uint32_t *)(uintptr_t)addr;
-        if (*magic_ptr != cpu_to_fdt32(FDT_MAGIC)) {
-            continue;
-        }
-
-        /* Copy from flash to DRAM for validation */
-        copy_size = end_addr - addr;
-        memcpy(dram_dtb_addr, (const void *)(uintptr_t)addr, copy_size);
-
-        /* Verify if the copied region is a valid DTB */
-        if (fdt_check_header(dram_dtb_addr) == 0) {
-            uprintf("Valid DTB found at 0x%lx, copied to 0x%lx\n",
-                    addr, (uint64_t)dram_dtb_addr);
-            return dram_dtb_addr;
-        } else {
-            uprintf("FDT_MAGIC at 0x%lx but invalid DTB header\n", addr);
-        }
-    }
-
-    uprintf("No valid DTB found between 0x%lx and 0x%lx\n", fmc_end, end_addr);
-    return NULL;
-}
-
 uint64_t load_fit_boot_image(void)
 {
     struct reserved_mem_info reservedinfo = {0};
@@ -417,8 +386,8 @@ uint64_t load_fit_boot_image(void)
         search_next_addr =  fmcinfo.payload_end;
 
         /* Try to find and load a valid SPL DTB between FMC and U-Boot FIT */
-        dtb_ptr = load_dtb_after_fmc(fmcinfo.payload_start,
-                                     fmcinfo.payload_end);
+        dtb_ptr = find_and_load_appended_dtb(fmcinfo.payload_start,
+                                             fmcinfo.payload_end);
         if (dtb_ptr) {
             get_reserved_memory(dtb_ptr, &reservedinfo);
         }

@@ -18,6 +18,7 @@
 #define __AST27X0_INCLUDE_SSP_TSP_H__
 
 #include <stdint.h>
+#include <platform_ast2700.h>
 
 /* MAX visible range is 512M for SSP and TSP */
 #define MAX_I_D_ADDRESS (512 * 1024 * 1024)
@@ -30,7 +31,7 @@
 #define IPC_SSP_MEMORY_NODE "/reserved-memory/ipc-ssp-share"
 
 /* SCU */
-#define ASPEED_CPU_SCU_BASE 0x12C02000
+#define ASPEED_CPU_SCU_BASE SCU0_REG
 #define SCU_CPU_RST_SSP     BIT(30)
 #define SCU_CPU_RST2_TSP    BIT(9)
 
@@ -89,7 +90,7 @@ struct ast2700_scu0 {
 
 struct mem_region {
     uint64_t addr;
-    uint32_t size;
+    uint64_t size;
 };
 
 struct reserved_mem_info {

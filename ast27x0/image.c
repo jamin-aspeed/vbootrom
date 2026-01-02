@@ -18,11 +18,14 @@
  */
 
 #include <string.h>
+#include <libfdt.h>
 #include <uart.h>
 #include <uart_console.h>
 #include <io.h>
 #include <image.h>
 #include <fmc_image.h>
+#include <manifest.h>
+#include <platform_ast2700.h>
 
 /*
  * This global struct is explicitly initialized, so it is placed in the .data
@@ -77,18 +80,60 @@ uint64_t convert_mcu_addr_to_arm_dram(uint64_t mcu_load_addr)
         return mcu_load_addr;
     }
 
-    return DRAM_ADDR + ((uint64_t)mcu_load_addr - 0x80000000);
+    return SYS_DRAM_BASE + ((uint64_t)mcu_load_addr - 0x80000000);
+}
+
+/*
+ * Scan the image tail for an appended Device Tree Blob (DTB),
+ * copy it to DRAM, and return its DRAM address if valid.
+ *
+ * This is used to locate SPL or U-Boot DTBs that are appended
+ * after their raw images.
+ */
+void *find_and_load_appended_dtb(uint64_t start_addr, uint64_t end_addr)
+{
+    void *dram_dtb_addr = (void *)(uintptr_t)SYS_DRAM_BASE;
+    const uint32_t *magic_ptr;
+    size_t copy_size;
+    uint64_t addr;
+
+    for (addr = ALIGN_UP(start_addr, 4); addr + 4 < end_addr; addr += 4) {
+        /* Check for DTB magic number (aligned on 4-byte boundary) */
+        magic_ptr = (const uint32_t *)(uintptr_t)addr;
+        if (*magic_ptr != cpu_to_fdt32(FDT_MAGIC)) {
+            continue;
+        }
+
+        /* Copy from flash to DRAM for validation */
+        copy_size = end_addr - addr;
+        memcpy(dram_dtb_addr, (const void *)(uintptr_t)addr, copy_size);
+
+        /* Verify if the copied region is a valid DTB */
+        if (fdt_check_header(dram_dtb_addr) == 0) {
+            uprintf("Valid DTB found at 0x%lx, copied to 0x%lx\n",
+                    addr, (uint64_t)dram_dtb_addr);
+            return dram_dtb_addr;
+        } else {
+            uprintf("FDT_MAGIC at 0x%lx but invalid DTB header\n", addr);
+        }
+    }
+
+    uprintf("No valid DTB found between 0x%lx and 0x%lx\n",
+            start_addr, end_addr);
+    return NULL;
 }
 
 uint64_t load_boot_image(void)
 {
+    int ret = CPTRA_SUCCESS;
+    uint64_t jump_addr;
+
     uart_aspeed_init(UART12);
     uart_console_register(&ucons);
     print_build_info();
 
     /*
      * Step 1: Try to boot using Caliptra Manifest
-     *
      *
      * If ALL steps above succeed:
      *   - Return BL31 entry address immediately
@@ -101,6 +146,12 @@ uint64_t load_boot_image(void)
      *   Caliptra Manifest boot is treated as the preferred path.
      *   FIT boot is kept as a compatibility mechanism.
      */
+    ret = load_manifest_boot_image(&jump_addr);
+    if (ret == CPTRA_SUCCESS) {
+        return jump_addr;
+    }
+
+    uprintf("Caliptra boot image load failed (%d)\n", ret);
 
     /*
      * Step 2: Fallback to FIT image boot
