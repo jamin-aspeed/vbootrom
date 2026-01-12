@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 ASPEED Technology Inc.
+ * Copyright (C) 2026 ASPEED Technology Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-#ifndef __AST27X0_INCLUDE_IMAGE_H__
-#define __AST27X0_INCLUDE_IMAGE_H__
+#ifndef __AST27X0_INCLUDE_AST_LOADER_H__
+#define __AST27X0_INCLUDE_AST_LOADER_H__
 
-#include <stdint.h>
+#include <stddef.h>
 
-uint64_t convert_mcu_addr_to_arm_dram(uint64_t mcu_load_addr);
-void *find_and_load_appended_dtb(uint64_t start_addr, uint64_t end_addr);
+void generate_crc32_table(void);
+uint32_t calc_checksum(const uint8_t *data, size_t length);
 
-#endif /* __AST27X0_INCLUDE_IMAGE_H__ */
+int ast_loader_read(uint64_t *dst, uint64_t src, uint32_t len);
+int ast_loader_load_image(uint32_t type, uint32_t *dst);
+int ast_loader_load_manifest_image(uint32_t type, uint32_t *dst);
+
+#endif /* __AST27X0_INCLUDE_AST_LOADER_H__ */

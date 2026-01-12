@@ -35,4 +35,13 @@
 
 #define ALIGN_UP(x, align)  (((x) + ((align) - 1)) & ~((align) - 1))
 
+/* extract the Least Significant Bit */
+#define LSB_GET(value) ((value) & -(value))
+
+/* extract a bitfield element from value corresponding to the field mask */
+#define FIELD_GET(mask, value)  (((value) & (mask)) / LSB_GET(mask))
+
+/* calculate number of array elements */
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+
 #endif /* __AST27X0_INCLUDE_IO_H__ */

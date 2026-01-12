@@ -19,6 +19,7 @@
 #include <uart_console.h>
 #include <image.h>
 #include <ssp_tsp.h>
+#include <platform_ast2700.h>
 
 void get_reserved_memory(const void *fdt_blob, struct reserved_mem_info *info)
 {
@@ -35,30 +36,69 @@ void get_reserved_memory(const void *fdt_blob, struct reserved_mem_info *info)
 
     const fdt32_t *reg;
     const char *path;
+    int size_cells;
+    int addr_cells;
+    uint64_t addr;
+    uint64_t size;
     int offset;
+    int parent;
     size_t i;
+    int len;
+    int j;
 
-    for (i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
+    for (i = 0; i < ARRAY_SIZE(nodes); i++) {
         path = nodes[i].path;
+        nodes[i].region->addr = 0;
+        nodes[i].region->size = 0;
+        addr = 0;
+        size = 0;
 
         offset = fdt_path_offset(fdt_blob, path);
         if (offset < 0) {
             uprintf("Cannot find node %s in the device tree.\n", path);
-            nodes[i].region->addr = 0;
-            nodes[i].region->size = 0;
             continue;
         }
 
-        reg = fdt_getprop(fdt_blob, offset, "reg", NULL);
+        parent = fdt_parent_offset(fdt_blob, offset);
+        addr_cells = fdt_address_cells(fdt_blob, parent);
+        size_cells = fdt_size_cells(fdt_blob, parent);
+
+        if (addr_cells < 0 || addr_cells > 2) {
+            uprintf("unsupported addr_cells: %d\n", addr_cells);
+            continue;
+        }
+
+        if (size_cells < 0 || size_cells > 2) {
+            uprintf("unsupported size_cells: %d\n", size_cells);
+            continue;
+        }
+
+        reg = fdt_getprop(fdt_blob, offset, "reg", &len);
         if (!reg) {
             uprintf("No reg property found in %s\n", path);
-            nodes[i].region->addr = 0;
-            nodes[i].region->size = 0;
             continue;
         }
 
-        nodes[i].region->addr = fdt32_to_cpu(reg[0]);
-        nodes[i].region->size = fdt32_to_cpu(reg[1]);
+        if (len < (addr_cells + size_cells) * (int)sizeof(fdt32_t)) {
+            uprintf("reg too short in %s (len=%d)\n", path, len);
+            continue;
+        }
+
+        for (j = 0; j < addr_cells; j++) {
+            addr = (addr << 32) | (uint64_t)fdt32_to_cpu(reg[j]);
+        }
+
+        for (j = 0; j < size_cells; j++) {
+            size = (size << 32) | (uint64_t)fdt32_to_cpu(reg[j + addr_cells]);
+        }
+
+        /* convert to Arm view */
+        if (addr_cells == 1) {
+            addr = convert_mcu_addr_to_arm_dram(addr);
+        }
+
+        nodes[i].region->addr = addr;
+        nodes[i].region->size = size;
 
         uprintf("[reserved] %s base: 0x%lx  size: 0x%lx\n", path,
                 nodes[i].region->addr, nodes[i].region->size);
@@ -69,6 +109,12 @@ int ssp_init(uint64_t load_addr, const struct reserved_mem_info *info)
 {
     struct ast2700_scu0 *scu;
     uint32_t reg_val;
+
+    if (load_addr != info->ssp.addr) {
+        uprintf("load address %lx doesn't match SSP reserved memory %lx\n",
+                load_addr, info->ssp.addr);
+        return 1;
+    }
 
     scu = (struct ast2700_scu0 *)ASPEED_CPU_SCU_BASE;
 
@@ -113,7 +159,7 @@ int ssp_init(uint64_t load_addr, const struct reserved_mem_info *info)
     writel(TCM_SIZE, (void *)&scu->ssp_tcm_size);
 
     /* Configure physical AHB remap: through H2M, mapped to SYS_DRAM_BASE */
-    writel((uint32_t)(DRAM_ADDR >> 4), (void *)&scu->ssp_ctrl_1);
+    writel((uint32_t)(SYS_DRAM_BASE >> 4), (void *)&scu->ssp_ctrl_1);
 
     /* Configure physical DRAM remap */
     reg_val = (uint32_t)(load_addr >> 4);
@@ -150,6 +196,12 @@ int tsp_init(uint64_t load_addr, const struct reserved_mem_info *info)
 {
     struct ast2700_scu0 *scu;
     uint32_t reg_val;
+
+    if (load_addr != info->tsp.addr) {
+        uprintf("load address %lx doesn't match TSP reserved memory %lx\n",
+                load_addr, info->tsp.addr);
+        return 1;
+    }
 
     scu = (struct ast2700_scu0 *)ASPEED_CPU_SCU_BASE;
 

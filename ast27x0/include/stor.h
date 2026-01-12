@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 ASPEED Technology Inc.
+ * Copyright (C) 2026 ASPEED Technology Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,19 @@
  * limitations under the License.
  */
 
-#ifndef __AST27X0_INCLUDE_IMAGE_H__
-#define __AST27X0_INCLUDE_IMAGE_H__
+#ifndef __AST27X0_INCLUDE_STOR_H__
+#define __AST27X0_INCLUDE_STOR_H__
 
 #include <stdint.h>
 
-uint64_t convert_mcu_addr_to_arm_dram(uint64_t mcu_load_addr);
-void *find_and_load_appended_dtb(uint64_t start_addr, uint64_t end_addr);
+struct image_info {
+    int id;
+    uint64_t offset;
+    uint32_t size;
+};
 
-#endif /* __AST27X0_INCLUDE_IMAGE_H__ */
+void stor_load(uint32_t type, uint32_t *dst, uint32_t *len);
+const struct image_info *stor_get_image_info_table(void);
+int stor_init(void);
+
+#endif /* __AST27X0_INCLUDE_STOR_H__ */
