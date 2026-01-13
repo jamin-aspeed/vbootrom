@@ -54,7 +54,7 @@ uint32_t calc_checksum(const uint8_t *data, size_t length)
     return crc ^ FINAL_XOR;
 }
 
-int ast_loader_read(uint64_t *dst, uint64_t src, uint32_t len)
+int ast_loader_read(void *dst, uint64_t src, uint32_t len)
 {
     uprintf("%s: dst=0x%lx, src=0x%lx, len=%d\n",
             __func__, dst, src, len);

@@ -18,6 +18,7 @@
 #define __AST27X0_INCLUDE_MANIFEST_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <image.h>
 
 #define CPTRA_FLASH_IMG_MAGIC (0x48534C46) /* 'FLSH' in little endian */

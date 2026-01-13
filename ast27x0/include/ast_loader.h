@@ -22,7 +22,7 @@
 void generate_crc32_table(void);
 uint32_t calc_checksum(const uint8_t *data, size_t length);
 
-int ast_loader_read(uint64_t *dst, uint64_t src, uint32_t len);
+int ast_loader_read(void *dst, uint64_t src, uint32_t len);
 int ast_loader_load_image(uint32_t type, uint32_t *dst);
 int ast_loader_load_manifest_image(uint32_t type, uint32_t *dst);
 
