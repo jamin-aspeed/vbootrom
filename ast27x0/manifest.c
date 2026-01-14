@@ -48,7 +48,7 @@ static int cptra_read_header(struct cptra_image_context *ctx)
     static struct cptra_manifest_hdr hdr = { 0 };
 
     /* Read the manfiest header */
-    ret = ast_loader_read((uint64_t *)&hdr, ctx->manifest_base,
+    ret = ast_loader_read(&hdr, ctx->manifest_base,
                           sizeof(struct cptra_manifest_hdr));
     if (ret) {
         uprintf("Failed to read manifest header.\n");
@@ -88,7 +88,7 @@ static int cptra_read_chk_img_info(struct cptra_image_context *ctx)
 
     size = sizeof(struct cptra_checksum_info);
     size += sizeof(struct cptra_image_info) * img_num;
-    ret = ast_loader_read((uint64_t *)chk_img, ctx->manifest_base + ofst,
+    ret = ast_loader_read(chk_img, ctx->manifest_base + ofst,
                           size);
     if (ret) {
         return CPTRA_ERR_READ_IMG_INFO;
